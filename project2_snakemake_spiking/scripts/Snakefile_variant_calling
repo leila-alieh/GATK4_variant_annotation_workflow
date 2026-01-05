@@ -166,9 +166,9 @@ rule call_variants:
         bqsr = f"{aligned_reads}/{{sample}}/{{variant}}/{{sample}}.dedup_bqsr.bam"
     output:
         out_dir = directory(f"{results}/{{sample}}/{{variant}}"),
-        variants = f"{results}/{{sample}}/{{variant}}/{{sample}}.raw_variants.vcf",
-        snp = f"{results}/{{sample}}/{{variant}}/{{sample}}.raw_snps.vcf",
-        indel = f"{results}/{{sample}}/{{variant}}/{{sample}}.raw_indels.vcf"
+        variants = f"{results}/{{sample}}/{{variant}}/{{sample}}_raw_variants.vcf",
+        snp = f"{results}/{{sample}}/{{variant}}/{{sample}}_raw_snps.vcf",
+        indel = f"{results}/{{sample}}/{{variant}}/{{sample}}_raw_indels.vcf"
 
     conda: "gatk4" 
     shell:
