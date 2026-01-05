@@ -1,0 +1,192 @@
+# Snakefile
+
+configfile: "config.yaml"
+
+samples = config["samples"]
+
+ref= config["ref"]
+known_sites= config["known_sites"] 
+reads= config["reads"]
+trimmed_reads= config["trimmed_reads"]
+aligned_reads= config["aligned_reads"]
+results= config["results"]
+data= config["data"]
+mutation = config["mutation"]
+
+variant_list = ["original","spiked"]
+
+rule all:
+    input:
+        expand(f"{aligned_reads}/{{sample}}/{{variant}}/{{sample}}.dedup_bqsr.bam",
+               sample=samples,
+               variant=variant_list),
+        expand(f"{results}/{{sample}}/{{variant}}/{{sample}}.raw_variants.vcf",
+               sample=samples,
+               variant=variant_list),
+        expand(f"{results}/{{sample}}/{{variant}}/{{sample}}.raw_snps.vcf",
+               sample=samples,
+               variant=variant_list),
+        expand(f"{results}/{{sample}}/{{variant}}/{{sample}}.raw_indels.vcf",
+               sample=samples,
+               variant=variant_list)
+
+rule fastqc:
+    input:
+        r1 = "{reads}/{sample}/{sample}_1.fastq.gz",
+        r2 = "{reads}/{sample}/{sample}_2.fastq.gz"
+    output:
+        r1_html = "{reads}/{sample}/{sample}_1_fastqc.html",
+        r1_zip = "{reads}/{sample}/{sample}_1_fastqc.zip",
+        r2_html = "{reads}/{sample}/{sample}_2_fastqc.html",
+        r2_zip = "{reads}/{sample}/{sample}_2_fastqc.zip"
+    conda: "gatk4" 
+    shell:
+        """
+        fastqc {input.r1} -o {reads}/{sample}/ &&
+        fastqc {input.r2} -o {reads}/{sample}/
+        """
+
+rule trim:
+    input:
+        r1 = f"{reads}/{{sample}}/{{sample}}_1.fastq.gz",
+        r2 = f"{reads}/{{sample}}/{{sample}}_2.fastq.gz"
+    output:
+        r1_p = f"{trimmed_reads}/{{sample}}/{{sample}}_1_paired.fastq.gz",
+        r1_u = f"{trimmed_reads}/{{sample}}/{{sample}}_1_unpaired.fastq.gz",
+        r2_p = f"{trimmed_reads}/{{sample}}/{{sample}}_2_paired.fastq.gz",
+        r2_u = f"{trimmed_reads}/{{sample}}/{{sample}}_2_unpaired.fastq.gz"
+    conda: "gatk4" 
+    shell:
+        """
+        trimmomatic PE \
+            {input.r1} \
+            {input.r2} \
+            {output.r1_p} \
+            {output.r1_u} \
+            {output.r2_p} \
+            {output.r2_u} \
+            ILLUMINACLIP:{lib_kit}:2:30:10 \
+            LEADING:3 \
+            TRAILING:3 \
+            SLIDINGWINDOW:5:20 \
+            MINLEN:36
+        """
+
+rule align_bwa:
+    input:
+        r1 = f"{trimmed_reads}/{{sample}}/{{sample}}_1_paired.fastq.gz",
+        r2 = f"{trimmed_reads}/{{sample}}/{{sample}}_2_paired.fastq.gz"
+    output:
+        bam = f"{aligned_reads}/{{sample}}/original/{{sample}}.bam",
+        bai = f"{aligned_reads}/{{sample}}/original/{{sample}}.bam.bai",
+        dir = directory(f"{aligned_reads}/{{sample}}/original")
+    conda: "gatk4" 
+    shell:
+        """
+        bwa mem -R "@RG\\tID:{wildcards.sample}\\tPL:ILLUMINA\\tSM:{wildcards.sample}" \
+            {ref} {input.r1} {input.r2} \
+        | samtools view -b - \
+        | samtools sort -o {output.bam} &&
+        samtools index {output.bam}
+        """
+
+rule mutate:
+    input:
+        bam = f"{aligned_reads}/{{sample}}/original/{{sample}}.bam",
+        mutation = f"{mutation}"
+    output:
+        bam = f"{aligned_reads}/{{sample}}/spiked/{{sample}}.bam",
+        bai = f"{aligned_reads}/{{sample}}/spiked/{{sample}}.bam.bai",
+        dir = directory(f"{aligned_reads}/{{sample}}/spiked")
+    conda: "bamsurgeon" 
+    shell:
+        """
+        addsnv.py -v {mutation} -f {input.bam} -r {ref} -o {output.bam} -m 0.5
+        samtools index {output.bam}
+        """
+
+rule mark_duplicate:
+    input:
+        bam = "{aligned_reads}/{sample}/{variant}/{sample}.bam"
+    output:
+        dedup = "{aligned_reads}/{sample}/{variant}/{sample}.dedup.bam",
+        metrics = "{aligned_reads}/{sample}/{variant}/{sample}_input.dup_metrics.txt"
+    conda: "gatk4" 
+    shell:
+        """
+        gatk  MarkDuplicates\
+         -I {input.bam}\
+         -O {output.dedup}\
+         -M {output.metrics}  
+        """
+
+rule recalibrate:
+    input:
+        dedup = f"{aligned_reads}/{{sample}}/{{variant}}/{{sample}}.dedup.bam"
+    output:
+        dir = directory(f"{data}/{{sample}}/{{variant}}"),
+        table= f"{data}/{{sample}}/{{variant}}/recal_data.table",
+        bqsr = f"{aligned_reads}/{{sample}}/{{variant}}/{{sample}}.dedup_bqsr.bam"
+    conda: "gatk4" 
+    shell:
+        """
+        gatk  BaseRecalibrator\
+        -I {input.dedup} \
+        -R {ref} \
+        --known-sites {known_sites}\
+        -O {output.table} &&
+        gatk ApplyBQSR\
+        -I {input.dedup}\
+        -R {ref}\
+        --bqsr-recal-file {output.table}\
+        -O {output.bqsr}
+        """
+
+rule metrics:
+    input:
+        bqsr = "{aligned_reads}/{sample}/{variant}/{sample}.dedup_bqsr.bam"
+    output:
+        m = "{aligned_reads}/{sample}/{variant}/{sample}"
+    conda: "gatk4" 
+    shell:
+        """
+        gatk  CollectAlignmentSummaryMetrics\
+        -I {input.bqsr} \
+        -R {ref} \
+        -O {output.m}.alignment_metrics.txt &&
+        gatk CollectInsertSizeMetrics\
+        -R {ref}\
+        -I {input.bqsr}\
+        --OUTPUT {output.m}.insert_size_metrics.txt\
+        --HISTOGRAM_FILE {output.m}.insert_size_histogram.pdf
+        """
+
+rule call_variants:
+    input:
+        bqsr = f"{aligned_reads}/{{sample}}/{{variant}}/{{sample}}.dedup_bqsr.bam"
+    output:
+        out_dir = directory(f"{results}/{{sample}}/{{variant}}"),
+        variants = f"{results}/{{sample}}/{{variant}}/{{sample}}.raw_variants.vcf",
+        snp = f"{results}/{{sample}}/{{variant}}/{{sample}}.raw_snps.vcf",
+        indel = f"{results}/{{sample}}/{{variant}}/{{sample}}.raw_indels.vcf"
+
+    conda: "gatk4" 
+    shell:
+        """
+        gatk  HaplotypeCaller\
+        -R {ref} \
+        -I {input.bqsr} \
+        -O {output.variants} &&
+        gatk  SelectVariants\
+        -R {ref}\
+        -V {output.variants}\
+        --select-type SNP\
+        -o {output.snp} &&
+        gatk  SelectVariants\
+        -R {ref}\
+        -V {output.variants}\
+        --select-type INDEL\
+        -o {output.indel}      
+        """
+
+
