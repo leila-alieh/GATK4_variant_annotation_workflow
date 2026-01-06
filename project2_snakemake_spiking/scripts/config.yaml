@@ -1,12 +1,12 @@
 samples:
  SRR099960
 
-ref: "/Users/leila/Projects/Variant_calling_GATK/supporting_files/hg38/hg38.fa" 
-known_sites: "/Users/leila/Projects/Variant_calling_GATK/supporting_files/hg38/Homo_sapiens_assembly38.dbsnp138.vcf"
-aligned_reads: "/Users/leila/Projects/Variant_calling_GATK/aligned_reads"
-reads: "/Users/leila/Projects/Variant_calling_GATK/reads"
-results: "/Users/leila/Projects/Variant_calling_GATK/results"
-data: "/Users/leila/Projects/Variant_calling_GATK/data"
-trimmed_reads: "/Users/leila/Projects/Variant_calling_GATK/trimmed_reads"
-mutation: "/Users/leila/Projects/Variant_calling_GATK/PTPN4_Q180Ter_chr2.bed"
-dataSources: "/Users/leila/Projects/Variant_calling_GATK/dataSources/funcotator_dataSources.v1.8.hg38.20230908g"
+ref: "/path/to/supporting_files/hg38/hg38.fa" 
+known_sites: "/path/to/supporting_files/hg38/Homo_sapiens_assembly38.dbsnp138.vcf"
+aligned_reads: "/path/to/aligned_reads"
+reads: "/path/to/reads"
+results: "/path/to/results"
+data: "/path/to/data"
+trimmed_reads: "/path/to/trimmed_reads"
+mutation: "/path/to/PTPN4_Q180Ter_chr2.bed"
+dataSources: "/path/to/dataSources/funcotator_dataSources.v1.8.hg38.20230908g"
